@@ -1,1 +1,133 @@
+import pandas as pd
+import requests #library needed for requesting information from website
+import re #library for getting only certain data from category
 
+#change long data to short, easy to read one
+def normalize_drive_type(val):
+    if not val:
+        return "Unknown"
+    val = val.lower()
+    if "front" in val:
+        return "FWD"
+    elif "rear" in val:
+        return "RWD"
+    elif "all" in val or "4wd" in val or "awd" in val:
+        return "AWD"
+    return val.upper()
+
+def normalize_body_class(val):
+    if not val:
+        return "Unknown"
+    val = val.lower()
+    if "sport utility" in val or "mpv" in val or "suv" in val:
+        return "SUV"
+    elif "sedan" in val:
+        return "Sedan"
+    elif "coupe" in val:
+        return "Coupe"
+    elif "convertible" in val:
+        return "Convertible"
+    elif "truck" in val or "pickup" in val:
+        return "Truck"
+    elif "van" in val:
+        return "Van"
+    else:
+        return val.capitalize()
+
+#decoding vin using the NHTSA vin decoder site
+def decode_vin(vin):
+    url = f"https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVin/{vin}?format=json"
+
+    try:
+        response = requests.get(url, timeout=5)
+        if response.status_code == 200:
+            data = response.json()
+
+            # columns for vehicle specs in each row
+            specs = {
+                "Model": None,
+                "Trim": None,
+                "Engine Displacement (L)": None,
+                "Gross Vehicle Weight Rating": None,
+                "Cylinders": None,
+                "Drive Type": None,
+                "Primary Fuel Type": None,
+                "Body Class": None
+            }
+
+            # loop through the results
+            for item in data['Results']:
+                var = item['Variable']
+                val = item['Value']
+
+                # model
+                if var == "Model" and val:
+                    specs["Model"] = val
+
+                # trim
+                if var == "Trim" and val:
+                    specs["Trim"] = val
+
+                # displacement of engine converted to float
+                if var == "Displacement (L)" and val:
+                    try:
+                        specs["Engine Displacement (L)"] = float(val)
+                    except:
+                        pass  # In case conversion fails, ignore
+
+                #extract cylinders
+                if var == "Engine Number of Cylinders" and val:
+                    specs["Cylinders"] = val
+
+                # use normalizE and extact the drive type
+                if var == "Drive Type" and val:
+                    specs["Drive Type"] = normalize_drive_type(val)
+
+                #extract fuel type
+                if var == "Fuel Type - Primary" and val:
+                    specs["Primary Fuel Type"] = val
+
+                # extract weight class
+                if var == "Gross Vehicle Weight Rating" and val:
+                    specs["Gross Vehicle Weight Rating"] = val
+
+                #use the normalize and extract
+                if var == "Body Class" and val:
+                    specs["Body Class"] = normalize_body_class(val)
+
+            return specs
+
+        else:
+            print(f"Failed to fetch data for VIN {vin} (Status Code: {response.status_code})")
+
+    except Exception as e:
+        print(f"Error processing VIN {vin}: {str(e)}")
+
+    # Return defaults if decoding fails
+    return {
+        "Model": "Unknown",
+        "Trim": "Unknown",
+        "Engine Displacement (L)": None,
+        "Gross Vehicle Weight Rating": "Unknown",
+        "Cylinders": "Unknown",
+        "Drive Type": "Unknown",
+        "Primary Fuel Type": "Unknown",
+        "Body Class": "Unknown"
+    }
+
+#original dataset
+file_path = "/content/drive/My Drive/USA_cars_datasets.csv"
+df = pd.read_csv(file_path)
+
+# vin decoding function to each vin
+vin_data = df['vin'].apply(decode_vin).apply(pd.Series)
+
+#concat original and new data done by column
+df = pd.concat([df, vin_data], axis=1)
+
+df_clean = df.dropna()
+df_clean = df_clean[~df_clean.apply(lambda row: row.astype(str).str.lower().str.contains('unknown').any(), axis=1)]
+
+# save
+output_path = "/content/drive/My Drive/detailscut.xlsx"
+df.to_excel(output_path, index=False, engine='openpyxl')

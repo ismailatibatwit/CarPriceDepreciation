@@ -1,0 +1,52 @@
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+df = pd.read_excel('detailscut.xlsx')
+
+#clean the numeric columns
+df['price'] = pd.to_numeric(df['price'], errors='coerce')
+df['mileage'] = pd.to_numeric(df['mileage'], errors='coerce')
+df['year'] = pd.to_numeric(df['year'], errors='coerce')
+
+#keeping data that seems more realistic
+df = df[(df['price'] > 1000) & (df['mileage'] > 0) & (df['year'] > 1980)] 
+
+#make age from dataset - year
+df['age'] = 2025 - df['year']
+
+#1. price vs mileage visual
+plt.figure(figsize=(10,6))
+sns.regplot(data=df, x='mileage', y='price', scatter_kws={'alpha':0.3}, line_kws={"color":"red"}) #regression line
+plt.ylim(0, df['price'].quantile(0.98))  
+plt.xlim(0, df['mileage'].quantile(0.98)) #limit to show area with most cars, not include those out of the area on the visual><
+plt.title('Car Price vs Mileage')
+plt.xlabel('Mileage')
+plt.ylabel('Price')
+plt.grid(True)
+plt.savefig('PricevsMileage.png', dpi=300) 
+plt.show()
+
+#2.value management for each 5 top most reccuring brands
+top_brands = df['brand'].value_counts().head(5).index
+avg_price_by_brand_age = df[df['brand'].isin(top_brands)].groupby(['brand', 'age'])['price'].mean().reset_index() #comparing top brands over time shows which ones hold value best
+
+plt.figure(figsize=(14,7))
+sns.lineplot(data=avg_price_by_brand_age, x='age', y='price', hue='brand') 
+plt.title('Average Price by Age for Top 5 Brands') 
+plt.xlabel('Car Age (Years)')
+plt.ylabel('Average Price')
+plt.grid(True)
+plt.savefig('ValueManagement.png', dpi=300) 
+plt.show()
+
+#3. price vs age
+plt.figure(figsize=(10,6))
+sns.regplot(data=df, x='age', y='price', scatter_kws={'alpha':0.3}, line_kws={"color":"green"}) 
+plt.ylim(0, df['price'].quantile(0.98)) #
+plt.title('Car Price vs Age')
+plt.xlabel('Age (Years)')
+plt.ylabel('Price')
+plt.grid(True)
+plt.savefig('PricevsAge.png', dpi=300)
+plt.show()

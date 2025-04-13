@@ -1,0 +1,171 @@
+import pandas as pd
+import numpy as np
+#essential tools for scaling, model building, splitting data, evaluating performance
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.metrics import mean_absolute_error, r2_score
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.impute import SimpleImputer
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
+import matplotlib.pyplot as plt
+import seaborn as sns
+import joblib
+from datetime import datetime
+
+#prepare data
+try:
+    df = pd.read_excel("FinalDataset_clean.xlsx")
+    
+    brand_counts = df['brand'].value_counts()
+    valid_brands = brand_counts[brand_counts >= 2].index #only keep brands with at least 2 samples
+    df = df[df['brand'].isin(valid_brands)]
+    
+    #time periods for pattern recognition
+    current_year = datetime.now().year
+    year_bins = [1980, 1990, 1995, 2000, 2005, 2010, 2015, 2020, current_year]
+    year_labels = ['1981-1990', '1991-1995', '1996-2000', '2001-2005', 
+                   '2006-2010', '2011-2015', '2016-2020', f'2021-{current_year}']
+    df['manufacture_period'] = pd.cut(df['year'], bins=year_bins, labels=year_labels)#bin years helps with trend recognitiion
+    
+    print("\nAvailable brands:")
+    print(df['brand'].unique())
+except Exception as e:
+    print(f"Data loading error: {str(e)}")
+    exit()
+
+# data preprocessing
+numeric_features = ['year', 'mileage', 'Engine Displacement (L)', 'Cylinders']#numerical features
+cat_features = ['brand', 'model', 'title_status', 'Drive Type', 
+               'fueltype', 'Body Class', 'manufacture_period'] #strings
+
+#pipelines
+numeric_transformer = Pipeline(steps=[
+    ('imputer', SimpleImputer(strategy='median')),
+    ('scaler', StandardScaler())])#standardizeing features
+
+categorical_transformer = Pipeline(steps=[
+    ('imputer', SimpleImputer(strategy='constant', fill_value='missing')), #handle missing categories
+    ('onehot', OneHotEncoder(handle_unknown='ignore'))])  #encode categories as numbers
+
+preprocessor = ColumnTransformer(
+    transformers=[
+        ('num', numeric_transformer, numeric_features),
+        ('cat', categorical_transformer, cat_features)])
+
+#model pipeline for random forest 
+model = Pipeline([
+    ('preprocessor', preprocessor),
+    ('regressor', RandomForestRegressor(
+        n_estimators=150,
+        max_depth=20,
+        random_state=42,
+        n_jobs=-1))
+])
+
+#test split
+X = df.drop(['price', 'vin', 'lot', 'state', 'country', 'color', 'condition', 'Trim'], axis=1)
+y = df['price']
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, 
+    test_size=0.2, 
+    random_state=42,
+    stratify=df['brand']
+)
+
+#train model with data
+print("\nTraining model...")
+model.fit(X_train, y_train)
+
+#evaluate the stranth of the model 
+y_pred = model.predict(X_test)
+print(f"\nModel Performance:")
+print(f"MAE: ${mean_absolute_error(y_test, y_pred):,.2f}") #error for the dataset run
+print(f"R²: {r2_score(y_test, y_pred):.2f}")  # the reliability of the model for the dataset
+
+# Future prediction function
+def predict_future_prices(years_ahead_list):
+    current_year = datetime.now().year
+    predictions = []
+    
+    for years_ahead in years_ahead_list:
+        future_df = df.copy()
+        
+        #simulation for ageing cars
+        future_df['year'] += years_ahead
+        future_df['mileage'] += (12000 * years_ahead)  #12k miles assumption per year
+        future_df['mileage'] = np.clip(future_df['mileage'], 0, 200000)  #unrealistic mileage cut
+        
+        #predict prices
+        future_df['future_price'] = model.predict(future_df[X.columns])
+        
+        #aggregate results
+        grouped = future_df.groupby(['brand', 'manufacture_period']).agg({
+            'future_price': ['mean', 'median'],
+            'mileage': 'mean',
+            'Engine Displacement (L)': 'mean',
+            'price': 'mean'
+        }).reset_index()
+        
+        grouped.columns = ['_'.join(col).strip('_') for col in grouped.columns]
+        grouped['years_ahead'] = years_ahead
+        predictions.append(grouped)
+    
+    return pd.concat(predictions)
+
+#generate predictions
+print("\nGenerating future price")
+future_predictions = predict_future_prices([1, 5, 10]) #1,5,10 year predition
+future_predictions.to_csv('future_price_predictions.csv', index=False)
+print("\nPredictions saved")
+
+#visual
+def plot_predictions(brand):
+    brand_data = future_predictions[future_predictions['brand'] == brand]
+    
+    plt.figure(figsize=(14, 8))
+    sns.lineplot(
+        data=brand_data,
+        x='years_ahead',
+        y='future_price_mean',
+        hue='manufacture_period',
+        style='manufacture_period',
+        markers=True,
+        dashes=False
+    )
+    plt.title(f'{brand} Price Projection')
+    plt.xlabel('Years into Future')
+    plt.ylabel('Predicted Price ($)')
+    plt.legend(title='Manufacturing Period')
+    plt.grid(True)
+    plt.show()
+
+
+
+if 'brand' in df.columns:
+     #plot for each brand
+    for brand in df['brand'].unique():
+        plot_predictions(brand)
+joblib.dump(model, 'used_car_price_predictor.pkl')
+print("\nModel saved")
+
+#sample prediction interface
+def predict_price(car_details):
+    try:
+        input_data = pd.DataFrame([{
+            'brand': car_details['brand'],
+            'model': car_details['model'],
+            'year': car_details['year'],
+            'mileage': car_details['mileage'],
+            'Engine Displacement (L)': car_details['displacement'],
+            'Cylinders': car_details['cylinders'],
+            'Drive Type': car_details['drive_type'],
+            'fueltype': car_details['fuel_type'],
+            'Body Class': car_details['body_class'],
+            'title_status': car_details.get('title_status', 'clean'),
+            'manufacture_period': pd.cut([car_details['year']], bins=year_bins, labels=year_labels)[0] #bin select for year of cart
+        }])
+        return model.predict(input_data)[0] #return predicted price
+    except Exception as e:
+            print(f"Prediction error: {str(e)}")
+            return None

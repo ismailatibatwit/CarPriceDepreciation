@@ -51,7 +51,7 @@ def decode_vin(vin):
                 "Gross Vehicle Weight Rating": None,
                 "Cylinders": None,
                 "Drive Type": None,
-                "Primary Fuel Type": None,
+                "fueltype": None,
                 "Body Class": None
             }
 
@@ -85,7 +85,7 @@ def decode_vin(vin):
 
                 #extract fuel type
                 if var == "Fuel Type - Primary" and val:
-                    specs["Primary Fuel Type"] = val
+                    specs["fueltype"] = val
 
                 # extract weight class
                 if var == "Gross Vehicle Weight Rating" and val:
@@ -103,7 +103,7 @@ def decode_vin(vin):
     except Exception as e:
         print(f"Error processing VIN {vin}: {str(e)}")
 
-    # Return defaults if decoding fails
+    #return original if decoding fails - no data found
     return {
         "Model": "Unknown",
         "Trim": "Unknown",
@@ -111,7 +111,7 @@ def decode_vin(vin):
         "Gross Vehicle Weight Rating": "Unknown",
         "Cylinders": "Unknown",
         "Drive Type": "Unknown",
-        "Primary Fuel Type": "Unknown",
+        "fueltype": "Unknown",
         "Body Class": "Unknown"
     }
 

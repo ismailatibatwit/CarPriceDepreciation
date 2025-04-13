@@ -97,11 +97,6 @@ def decode_vin(vin):
 
             return specs
 
-        else:
-            print(f"Failed to fetch data for VIN {vin} (Status Code: {response.status_code})")
-
-    except Exception as e:
-        print(f"Error processing VIN {vin}: {str(e)}")
 
     #return original if decoding fails - no data found
     return {
